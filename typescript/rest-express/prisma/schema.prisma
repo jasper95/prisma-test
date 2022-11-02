@@ -18,8 +18,7 @@ model User {
 model Menu {
   id            Int @id @default(autoincrement())
   content       String
-  restaurantId  Int
-  restaurant    Restaurant[]
+  restaurants   Restaurant[]
   menuItems     MenuItem[]
 }
 
