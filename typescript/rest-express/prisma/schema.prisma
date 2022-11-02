@@ -3,25 +3,87 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
-  url      = "file:./dev.db"
+  provider = "postgresql"
+  url      = "postgresql://jasper:jasper@localhost:5434/prisma-test?schema=public"
 }
 
 model User {
-  id    Int     @id @default(autoincrement())
-  email String  @unique
-  name  String?
-  posts Post[]
+  id      Int @id @default(autoincrement())
+  name    String
+  waiter  Waiter?
+  chef    Chef?
+  guest   Guest?
 }
 
-model Post {
-  id        Int      @id @default(autoincrement())
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  title     String
-  content   String?
-  published Boolean  @default(false)
-  viewCount Int      @default(0)
-  author    User?    @relation(fields: [authorId], references: [id])
-  authorId  Int?
+model Menu {
+  id            Int @id @default(autoincrement())
+  content       String
+  restaurantId  Int
+  restaurant    Restaurant[]
+  menuItems     MenuItem[]
+}
+
+model MenuItem {
+  id        Int @id @default(autoincrement())
+  name      String
+  menuId    Int
+  menu      Menu @relation(fields: [menuId], references: [id])
+}
+
+model Restaurant {
+  id        Int @id @default(autoincrement())
+  name      String
+  menuId    Int
+  menu      Menu @relation(fields: [menuId], references: [id])
+  chefs     ChefsOnRestaurants[]
+  waiters   WaitersOnRestaurants[]
+  guests    GuestsOnRestaurants[]
+}
+
+model Chef {
+  id          Int @id @default(autoincrement())
+  name        String
+  userId      Int @unique
+  user        User @relation(fields: [userId], references: [id])
+  restaurants ChefsOnRestaurants[]
+}
+
+model Guest {
+  id      Int @id @default(autoincrement())
+  name    String
+  userId  Int @unique
+  user    User @relation(fields: [userId], references: [id])
+  restaurants GuestsOnRestaurants[]
+}
+
+model Waiter {
+  id      Int @id @default(autoincrement())
+  name    String
+  userId  Int @unique
+  user    User @relation(fields: [userId], references: [id])
+  restaurants WaitersOnRestaurants[]
+}
+
+model ChefsOnRestaurants {
+  chef          Chef @relation(fields: [chefId], references: [id])
+  chefId        Int 
+  restaurant    Restaurant @relation(fields: [restaurantId], references: [id])
+  restaurantId  Int
+  @@id([chefId, restaurantId])
+}
+
+model GuestsOnRestaurants {
+  guest          Guest @relation(fields: [guestId], references: [id])
+  guestId        Int 
+  restaurant     Restaurant @relation(fields: [restaurantId], references: [id])
+  restaurantId   Int
+  @@id([guestId, restaurantId])
+}
+
+model WaitersOnRestaurants {
+  waiter        Waiter @relation(fields: [waiterId], references: [id])
+  waiterId      Int 
+  restaurant    Restaurant @relation(fields: [restaurantId], references: [id])
+  restaurantId  Int
+  @@id([waiterId, restaurantId])
 }
