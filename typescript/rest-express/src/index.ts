@@ -1,6 +1,12 @@
 import pluralize from 'pluralize'
 import { Prisma, PrismaClient } from '@prisma/client'
 import express from 'express'
+const snakeCase = require('lodash.snakecase');
+
+const knex = require('knex')({
+  client: 'pg',
+  connection: 'postgresql://jasper:jasper@localhost:5434/prisma-test?schema=public',
+});
 
 const prisma = new PrismaClient()
 const app = express()
@@ -10,53 +16,128 @@ app.use(express.json())
 function buildFilter(queryPlan: any): any {
   if(queryPlan.userId) {
     return {
-      userId: queryPlan.userId
+      userId: {
+        in: queryPlan.userId
+      }
     }
   }
   if(queryPlan.case === 'many-to-many') {
     return {
-      [pluralize(queryPlan.to)]: {
+      [pluralize(snakeCase(queryPlan.to))]: {
         some: {
-          [queryPlan.to]: buildFilter(queryPlan.in)
+          [snakeCase(queryPlan.to)]: buildFilter(queryPlan.in)
         }
       }
     }
   }
   if(queryPlan.case === 'many-to-one') {
     return {
-      [pluralize(queryPlan.to)]: {
+      [pluralize(snakeCase(queryPlan.to))]: {
         some: buildFilter(queryPlan.in)
       }
     }
   }
   return {
-    [queryPlan.to]: buildFilter(queryPlan.in)
+    [snakeCase(queryPlan.to)]: buildFilter(queryPlan.in)
   }
 }
+
+function buildKnexQuery(q: any): any {
+  // base case
+  if(q.userId) {
+    return knex(q.from)
+      .where(q.fromField, 'in', q.userId)
+  }
+  if(q.case === 'many-to-many') {
+    return knex(q.from)
+      .where(q.fromField, 'in',
+        knex(q.joinRelation)
+          .where(q.joinRelationFromField, 'in',
+            buildKnexQuery(q.in)
+              .select(q.toField)
+          )
+          .select(q.joinRelationFromField)
+      )
+  }
+  if(q.case === 'many-to-one') {
+    return knex(q.from)
+      .where(q.fromField, 'in',
+        buildKnexQuery(q.in)
+          .select(q.toField)
+      )
+  }
+  if(q.case === 'one-to-many') {
+    return knex(q.from)
+      .where(q.fromField, 'in',
+        buildKnexQuery(q.in)
+          .select(q.toField)
+      )
+      .select(q.select)
+  }
+  throw Error('not supported')
+}
+app.get('/sql', async(req, res) => {
+  const queryPlan = {
+    from: 'MenuItem',
+    fromField: 'menuId',
+    to: "Menu",
+    toField: 'id',
+    case: "one-to-many",
+    in: {
+      from: 'Menu',
+      fromField: 'id',
+      to: "Restaurant",
+      toField: 'menuId',
+      case: "many-to-one",
+      in: {
+        from: 'Restaurant',
+        fromField: 'id',
+        joinRelation: 'ChefsOnRestaurants',
+        joinRelationFromField: 'restaurantId',
+        joinRelationtoField: 'chefId',
+        to: 'Chef',
+        toField: 'id',
+        case: 'many-to-many',
+        in: {
+          from: 'Chef',
+          fromField: 'userId',
+          userId: [1],
+        }
+      }
+    }
+  }
+  const ids = await buildKnexQuery(queryPlan)
+
+  res.json(ids)
+})
 
 app.get('/user/:userId/chef/menuItems', async(req, res) => {
   const { userId = 1 } = req.params
   const queryPlan = {
-    from: 'menuItem',
-    fromField: 'menuItemId',
-    to: "menu",
+    from: 'MenuItem',
+    fromField: 'menuId',
+    to: "Menu",
     toField: 'id',
     case: "one-to-many",
     in: {
-      from: 'menu',
-      fromField: 'menuId',
-      to: "restaurant",
-      toField: 'id',
+      from: 'Menu',
+      fromField: 'id',
+      to: "Restaurant",
+      toField: 'menuId',
       case: "many-to-one",
       in: {
-        from: 'restaurant',
-        fromField: 'restaurantId',
-        joinRelation: 'chefs_on_restaurant',
-        to: 'chef',
-        toField: 'chefId',
+        from: 'Restaurant',
+        fromField: 'id',
+        joinRelation: 'ChefsOnRestaurants',
+        joinRelationFromField: 'restaurantId',
+        joinRelationtoField: 'chefId',
+        to: 'Chef',
+        toField: 'id',
         case: 'many-to-many',
         in: {
-          userId: Number(userId),
+          from: 'Chef',
+          fromField: 'userId',
+          userId: [Number(userId)],
         }
       }
     }
@@ -72,26 +153,30 @@ app.get('/user/:userId/chef/menuItems', async(req, res) => {
 app.get('/user/:userId/waiter/menuItems', async(req, res) => {
   const { userId = 1 } = req.params
   const queryPlan = {
-    from: 'menuItem',
-    fromField: 'menuItemId',
-    to: "menu",
+    from: 'MenuItem',
+    fromField: 'menuId',
+    to: "Menu",
     toField: 'id',
     case: "one-to-many",
     in: {
-      from: 'menu',
-      fromField: 'menuId',
-      to: "restaurant",
-      toField: 'id',
+      from: 'Menu',
+      fromField: 'id',
+      to: "Restaurant",
+      toField: 'menuId',
       case: "many-to-one",
       in: {
-        from: 'restaurant',
-        fromField: 'restaurantId',
-        joinRelation: 'waiters_on_restaurant',
-        to: 'waiter',
-        toField: 'waiterId',
+        from: 'Restaurant',
+        fromField: 'id',
+        joinRelation: 'WaitersOnRestaurants',
+        joinRelationFromField: 'restaurantId',
+        joinRelationtoField: 'waiterId',
+        to: 'Waiter',
+        toField: 'id',
         case: 'many-to-many',
         in: {
-          userId: Number(userId),
+          from: 'Waiter',
+          fromField: 'userId',
+          userId: [Number(userId)],
         }
       }
     }
@@ -107,20 +192,24 @@ app.get('/user/:userId/waiter/menuItems', async(req, res) => {
 app.get('/user/:userId/chef/menus', async(req, res) => {
   const { userId = 1 } = req.params
   const queryPlan = {
-    from: 'menu',
-    fromField: 'menuId',
-    to: "restaurant",
-    toField: 'id',
+    from: 'Menu',
+    fromField: 'id',
+    to: "Restaurant",
+    toField: 'menuId',
     case: "many-to-one",
     in: {
-      from: 'restaurant',
-      fromField: 'restaurantId',
-      joinRelation: 'chefs_on_restaurant',
-      to: 'chef',
-      toField: 'chefId',
+      from: 'Restaurant',
+      fromField: 'id',
+      joinRelation: 'ChefsOnRestaurants',
+      joinRelationFromField: 'restaurantId',
+      joinRelationtoField: 'chefId',
+      to: 'Chef',
+      toField: 'id',
       case: 'many-to-many',
       in: {
-        userId: Number(userId),
+        from: 'Chef',
+        fromField: 'userId',
+        userId: [Number(userId)],
       }
     }
   }
@@ -135,20 +224,24 @@ app.get('/user/:userId/chef/menus', async(req, res) => {
 app.get('/user/:userId/waiter/menus', async(req, res) => {
   const { userId = 1 } = req.params
   const queryPlan = {
-    from: 'menu',
-    fromField: 'menuId',
-    to: "restaurant",
-    toField: 'id',
+    from: 'Menu',
+    fromField: 'id',
+    to: "Restaurant",
+    toField: 'menuId',
     case: "many-to-one",
     in: {
-      from: 'restaurant',
-      fromField: 'restaurantId',
-      joinRelation: 'waiters_on_restaurant',
-      to: 'waiter',
-      toField: 'waiterId',
+      from: 'Restaurant',
+      fromField: 'id',
+      joinRelation: 'WaitersOnRestaurants',
+      joinRelationFromField: 'restaurantId',
+      joinRelationtoField: 'waiterId',
+      to: 'Waiter',
+      toField: 'id',
       case: 'many-to-many',
       in: {
-        userId: Number(userId),
+        from: 'Waiter',
+        fromField: 'userId',
+        userId: [Number(userId)],
       }
     }
   }
@@ -163,14 +256,18 @@ app.get('/user/:userId/waiter/menus', async(req, res) => {
 app.get('/user/:userId/chef/restaurants', async(req, res) => {
   const { userId = 1 } = req.params
   const queryPlan = {
-    from: 'restaurant',
-    fromField: 'restaurantId',
-    joinRelation: 'chefs_on_restaurant',
-    to: 'chef',
-    toField: 'chefId',
+    from: 'Restaurant',
+    fromField: 'id',
+    joinRelation: 'ChefsOnRestaurants',
+    joinRelationFromField: 'restaurantId',
+    joinRelationtoField: 'chefId',
+    to: 'Chef',
+    toField: 'id',
     case: 'many-to-many',
     in: {
-      userId: Number(userId),
+      from: 'Chef',
+      fromField: 'userId',
+      userId: [Number(userId)],
     }
   }
   const filter = buildFilter(queryPlan)
@@ -184,14 +281,18 @@ app.get('/user/:userId/chef/restaurants', async(req, res) => {
 app.get('/user/:userId/waiter/restaurants', async(req, res) => {
   const { userId = 1 } = req.params
   const queryPlan = {
-    from: 'restaurant',
-    fromField: 'restaurantId',
-    joinRelation: 'waiters_on_restaurant',
-    to: 'waiter',
-    toField: 'waiterId',
+    from: 'Restaurant',
+    fromField: 'id',
+    joinRelation: 'WaitersOnRestaurants',
+    joinRelationFromField: 'restaurantId',
+    joinRelationtoField: 'waiterId',
+    to: 'Waiter',
+    toField: 'id',
     case: 'many-to-many',
     in: {
-      userId: Number(userId),
+      from: 'Waiter',
+      fromField: 'userId',
+      userId: [Number(userId)],
     }
   }
   const filter = buildFilter(queryPlan)
