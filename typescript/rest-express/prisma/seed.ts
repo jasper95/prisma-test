@@ -1,78 +1,43 @@
 import { PrismaClient, Prisma } from '@prisma/client'
 const prisma = new PrismaClient()
 
-const userWaiter: Prisma.UserCreateInput[] = [1,2,3,4,5,6].map(i => (
+const userWaiter: Prisma.WaiterCreateInput[] = [1,2,3,4,5,6].map(i => (
   {
     name: `User Waiter ${i}`,
-    waiter: {
-      create: {
-        name: `User Waiter ${i}`,
-      },
-    }
+    userId: i
   }
 ))
 
-const userChef: Prisma.UserCreateInput[] = [1,2,3,4,5,6].map(i => (
-  {
-    name: `User Chef ${i}`,
-    chef: {
-      create: {
-        name: `User Chef ${i}`,
-      },
+const restaurants: Prisma.RestaurantCreateInput[] = [1,2,3,4,5,6].map(i => ({
+  name: `Restaurant ${i}`,
+  chefs: {
+    create: {
+      name: `Chef ${i}`,
+      userId: 6+i
     }
-  }
-))
-
-
-const menuData: Prisma.MenuCreateInput[] = [1,2,3,4,5,6,].map(i => ({
-  content: `Menu ${i}`,
-    restaurants: {
-      createMany: {
-        data: [
-          {
-            name: `Restaurant ${i}`,
-          },
-        ]
+  },
+  chain: {
+    create: {
+      name: `Chain ${i}`,
+      managers: {
+        create: {
+          name: `Manager ${i}`,
+          userId: 12 + i
+        }
       }
-    },
-    menuItems: {
-      createMany: {
-        data: [
-          {
-            name: `Menu Item ${i}`
-          },
-        ]
+    }
+  },
+  menus: {
+    create: {
+      content: `Menu ${i}`,
+      menuItems: {
+        create: {
+          name: `Menu Item ${i}`
+        }
       }
     }
   }
-))
-const chefRestaurantData: Prisma.ChefsOnRestaurantsUncheckedCreateInput[] = [
-  {
-    chefId: 1,
-    restaurantId: 1
-  },
-  {
-    chefId: 2,
-    restaurantId: 2
-  },
-  {
-    chefId: 3,
-    restaurantId: 3
-  },
-  {
-    chefId: 4,
-    restaurantId: 4
-  },
-  {
-    chefId: 5,
-    restaurantId: 5
-  },
-  {
-    chefId: 6,
-    restaurantId: 6
-  }
-]
-
+}))
 const waiterRestaurantData: Prisma.WaitersOnRestaurantsUncheckedCreateInput[] = [
   {
     waiterId: 1,
@@ -100,27 +65,18 @@ const waiterRestaurantData: Prisma.WaitersOnRestaurantsUncheckedCreateInput[] = 
   }
 ]
 async function main() {
-  for(const data of userChef) {
-    await prisma.user.create({
-      data
-    })
-  }
   for(const data of userWaiter) {
-    await prisma.user.create({
+    await prisma.waiter.create({
       data
     })
   }
-  console.log('menuData: ', menuData.length);
-  for(const data of menuData) {
-    await prisma.menu.create({
+  
+  for(const data of restaurants) {
+    await prisma.restaurant.create({
       data
     })
   }
-  for(const data of chefRestaurantData) {
-    await prisma.chefsOnRestaurants.create({
-      data
-    })
-  }
+
   for(const data of waiterRestaurantData) {
     await prisma.waitersOnRestaurants.create({
       data

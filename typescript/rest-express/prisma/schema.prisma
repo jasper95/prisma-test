@@ -7,19 +7,13 @@ datasource db {
   url      = "postgresql://jasper:jasper@localhost:5434/prisma-test?schema=public"
 }
 
-model User {
-  id      Int @id @default(autoincrement())
-  name    String
-  waiter  Waiter?
-  chef    Chef?
-  guest   Guest?
-}
 
 model Menu {
   id            Int @id @default(autoincrement())
   content       String
-  restaurants   Restaurant[]
+  restaurant    Restaurant @relation(fields: [restaurantId], references: [id])
   menuItems     MenuItem[]
+  restaurantId  Int
 }
 
 model MenuItem {
@@ -29,29 +23,44 @@ model MenuItem {
   menu      Menu @relation(fields: [menuId], references: [id])
 }
 
+model Manager {
+  id        Int @id @default(autoincrement())
+  name      String
+  userId    Int
+  chain     Chain @relation(fields: [chainId], references: [id])
+  chainId   Int
+}
+
+model Chain {
+  id          Int @id @default(autoincrement())
+  name        String
+  restaurants Restaurant[]
+  managers    Manager[]
+}
+
 model Restaurant {
   id        Int @id @default(autoincrement())
   name      String
-  menuId    Int
-  menu      Menu @relation(fields: [menuId], references: [id])
-  chefs     ChefsOnRestaurants[]
+  chefs     Chef[]
+  menus     Menu[]
+  chain     Chain @relation(fields: [chainId], references: [id])
+  chainId   Int
   waiters   WaitersOnRestaurants[]
   guests    GuestsOnRestaurants[]
 }
 
 model Chef {
-  id          Int @id @default(autoincrement())
-  name        String
-  userId      Int @unique
-  user        User @relation(fields: [userId], references: [id])
-  restaurants ChefsOnRestaurants[]
+  id            Int @id @default(autoincrement())
+  name          String
+  userId        Int
+  restaurantId  Int
+  restaurant    Restaurant @relation(fields: [restaurantId], references: [id])
 }
 
 model Guest {
   id      Int @id @default(autoincrement())
   name    String
   userId  Int @unique
-  user    User @relation(fields: [userId], references: [id])
   restaurants GuestsOnRestaurants[]
 }
 
@@ -59,16 +68,7 @@ model Waiter {
   id      Int @id @default(autoincrement())
   name    String
   userId  Int @unique
-  user    User @relation(fields: [userId], references: [id])
   restaurants WaitersOnRestaurants[]
-}
-
-model ChefsOnRestaurants {
-  chef          Chef @relation(fields: [chefId], references: [id])
-  chefId        Int 
-  restaurant    Restaurant @relation(fields: [restaurantId], references: [id])
-  restaurantId  Int
-  @@id([chefId, restaurantId])
 }
 
 model GuestsOnRestaurants {
