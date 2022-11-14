@@ -13,6 +13,107 @@ const app = express()
 
 app.use(express.json())
 
+async function isAllowed(resource: string, id: number | null, operation = 'read') {
+  const queryPlans = [
+    {
+      "queryPlan": {
+        "from": "MenuItem",
+        "to": "Menu",
+        "case": "many-to-one",
+        "fromField": "menuId",
+        "toField": "id",
+        "in": {
+          "from": "Menu",
+          "to": "Restaurant",
+          "case": "many-to-one",
+          "fromField": "restaurantId",
+          "toField": "id",
+          "in": {
+            "from": "Restaurant",
+            "to": "Chain",
+            "case": "many-to-one",
+            "fromField": "chainId",
+            "toField": "id",
+            "in": {
+              "from": "Chain",
+              "to": "Manager",
+              "case": "one-to-many",
+              "fromField": "id",
+              "toField": "chainId",
+              "in": {
+                "from": "Manager",
+                "fromField": "userId",
+                "userId": [
+                  7
+                ]
+              }
+            }
+          }
+        }
+      },
+      "kind": 'noAccess'
+    },
+    {
+      "queryPlan": {
+        "from": "MenuItem",
+        "to": "Menu",
+        "case": "many-to-one",
+        "fromField": "menuId",
+        "toField": "id",
+        "in": {
+          "from": "Menu",
+          "to": "Restaurant",
+          "case": "many-to-one",
+          "fromField": "restaurantId",
+          "toField": "id",
+          "in": {
+            "from": "Restaurant",
+            "to": "Chef",
+            "case": "one-to-many",
+            "fromField": "id",
+            "toField": "restaurantId",
+            "in": {
+              "from": "Chef",
+              "fromField": "userId",
+              "userId": [
+                7
+              ]
+            }
+          }
+        }
+      },
+      "kind": 'noAccess'
+    }
+  ]
+  const conditionals = queryPlans.filter((e: any) => e.kind === 'restricted')
+  const canAccessAll = queryPlans.find((e: any) => e.kind === 'fullAccess')
+
+  if(operation === 'create') {
+    return queryPlans.some(e => e.kind !== 'noAccess')
+  }
+
+  if(canAccessAll) {
+    return true
+  }
+
+  if(conditionals.length === 0) {
+    return false
+  }
+
+  const resultSets = []
+  for (const q of conditionals) {
+    const query =  buildKnexQuery(q.queryPlan)
+      .where({ id })
+    console.log('query:', query.toString())
+    const resultSet = await query
+    resultSets.push(resultSet)
+    if(resultSet.length) {
+      break
+    }
+  }
+  return resultSets.some(resultSet => resultSet.length > 0)
+}
+
 function buildFilter(queryPlan: any): any {
   if(queryPlan.userId) {
     const response =  {
@@ -87,8 +188,8 @@ function buildKnexQuery(q: any): any {
 }
 
 function getPrismaAuthorizationFilter(queryPlans: any) {
-  const conditionals = queryPlans.filter((e: any) => e.kind === 'conditional')
-  const canAccessAll = queryPlans.find((e: any) => e.kind === 'all')
+  const conditionals = queryPlans.filter((e: any) => e.kind === 'restricted')
+  const canAccessAll = queryPlans.find((e: any) => e.kind === 'fullAccess')
   if(canAccessAll) {
     return {}
   }
@@ -108,15 +209,15 @@ function getPrismaAuthorizationFilter(queryPlans: any) {
 }
 
 function getAuthorizationFilter(queryPlans: any) {
-  const conditionals = queryPlans.filter((e: any) => e.kind === 'conditional')
-  const canAccessAll = queryPlans.find((e: any) => e.kind === 'all')
+  const conditionals = queryPlans.filter((e: any) => e.kind === 'restricted')
+  const canAccessAll = queryPlans.find((e: any) => e.kind === 'fullAccess')
 
   return (query: any) => {
     if(canAccessAll) {
       return query
     }
     if(conditionals.length === 0) {
-      return  query.where('id', 'in', [])
+      return query.where('id', 'in', [])
     }
     return query.where('id', 'in',
       knex.union(
@@ -125,6 +226,12 @@ function getAuthorizationFilter(queryPlans: any) {
     )
   }
 }
+
+app.get('/menuItems/:id', async (req, res) => {
+  const { id = 1 } = req.params
+  const result = await isAllowed('MenuItem', id as number, 'read')
+  res.json({ result })
+})
 
 app.get('/knex', async(req, res) => {
   const queryPlans = [
@@ -164,7 +271,7 @@ app.get('/knex', async(req, res) => {
           }
         }
       },
-      "kind": "conditional"
+      "kind": 'restricted'
     },
     {
       "queryPlan": {
@@ -195,13 +302,14 @@ app.get('/knex', async(req, res) => {
           }
         }
       },
-      "kind": "conditional"
+      "kind": 'restricted'
     }
   ]
   const baseQuery = knex('MenuItem')
   const applyAuthorizationFilter = getAuthorizationFilter(queryPlans)
-  const query = await applyAuthorizationFilter(baseQuery)
-  res.json(query)
+  const query = applyAuthorizationFilter(baseQuery)
+  const response = await query
+  res.json(response)
 })
 
 app.get('/prisma', async(req, res) => {
@@ -242,7 +350,7 @@ app.get('/prisma', async(req, res) => {
           }
         }
       },
-      "kind": "conditional"
+      "kind": 'restricted'
     },
     {
       "queryPlan": {
@@ -273,7 +381,7 @@ app.get('/prisma', async(req, res) => {
           }
         }
       },
-      "kind": "conditional"
+      "kind": 'restricted'
     }
   ]
   const filter = getPrismaAuthorizationFilter(queryPlans)
@@ -412,6 +520,41 @@ app.get('/user/:userId/waiter/menus', async(req, res) => {
   })
   res.json(menus)
 })
+
+app.post('/menuItems', async (req, res) => {
+  const allowed = await isAllowed('MenuItem', null, 'create')
+  if(allowed) {
+    const response = await knex('MenuItem')
+      .insert(req.body)
+    return res.json(response)
+  }
+  res.status(403).json({ message: 'Forbidden' })
+})
+
+app.put('/menuItems/:id', async (req, res) => {
+  const { id } = req.params
+  const allowed = await isAllowed('MenuItem', Number(id), 'update')
+  if(allowed) {
+    const response = await knex('MenuItem')
+      .where({ id })
+      .update(req.body)
+    return res.json(response)
+  }
+  res.status(403).json({ message: 'Forbidden' })
+})
+
+app.delete('/menuItems/:id', async (req, res) => {
+  const { id } = req.params
+  const allowed = await isAllowed('MenuItem', Number(id), 'delete')
+  if(allowed) {
+    const response = await knex('MenuItem')
+      .where({ id })
+      .del()
+    return res.json(response)
+  }
+  res.status(403).json({ message: 'Forbidden' })
+})
+
 
 app.get('/user/:userId/chef/restaurants', async(req, res) => {
   const { userId = 1 } = req.params
