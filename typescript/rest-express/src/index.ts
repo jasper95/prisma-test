@@ -13,83 +13,13 @@ const app = express()
 
 app.use(express.json())
 
-async function isAllowed(resource: string, id: number | null, operation = 'read') {
-  const queryPlans = [
-    {
-      "queryPlan": {
-        "from": "MenuItem",
-        "to": "Menu",
-        "case": "many-to-one",
-        "fromField": "menuId",
-        "toField": "id",
-        "in": {
-          "from": "Menu",
-          "to": "Restaurant",
-          "case": "many-to-one",
-          "fromField": "restaurantId",
-          "toField": "id",
-          "in": {
-            "from": "Restaurant",
-            "to": "Chain",
-            "case": "many-to-one",
-            "fromField": "chainId",
-            "toField": "id",
-            "in": {
-              "from": "Chain",
-              "to": "Manager",
-              "case": "one-to-many",
-              "fromField": "id",
-              "toField": "chainId",
-              "in": {
-                "from": "Manager",
-                "fromField": "userId",
-                "userId": [
-                  7
-                ]
-              }
-            }
-          }
-        }
-      },
-      "kind": 'noAccess'
-    },
-    {
-      "queryPlan": {
-        "from": "MenuItem",
-        "to": "Menu",
-        "case": "many-to-one",
-        "fromField": "menuId",
-        "toField": "id",
-        "in": {
-          "from": "Menu",
-          "to": "Restaurant",
-          "case": "many-to-one",
-          "fromField": "restaurantId",
-          "toField": "id",
-          "in": {
-            "from": "Restaurant",
-            "to": "Chef",
-            "case": "one-to-many",
-            "fromField": "id",
-            "toField": "restaurantId",
-            "in": {
-              "from": "Chef",
-              "fromField": "userId",
-              "userId": [
-                7
-              ]
-            }
-          }
-        }
-      },
-      "kind": 'noAccess'
-    }
-  ]
+async function isAllowed(queryPlans: any, id: number | null, operation = 'read') {
+  // const queryPlans = 
   const conditionals = queryPlans.filter((e: any) => e.kind === 'restricted')
   const canAccessAll = queryPlans.find((e: any) => e.kind === 'fullAccess')
 
   if(operation === 'create') {
-    return queryPlans.some(e => e.kind !== 'noAccess')
+    return queryPlans.some((e: any) => e.kind !== 'noAccess')
   }
 
   if(canAccessAll) {
@@ -169,21 +99,21 @@ function buildKnexQuery(q: any): any {
           .select(q.joinRelationFromField)
       )
   }
-  if(q.case === 'many-to-one') {
+  if(q.case === 'many-to-one' || q.case === 'one-to-many') {
     return knex(q.from)
       .where(q.fromField, 'in',
         buildKnexQuery(q.in)
           .select(q.toField)
       )
   }
-  if(q.case === 'one-to-many') {
-    return knex(q.from)
-      .where(q.fromField, 'in',
-        buildKnexQuery(q.in)
-          .select(q.toField)
-      )
-      .select(q.select)
-  }
+  // if(q.case === 'one-to-many') {
+  //   return knex(q.from)
+  //     .where(q.fromField, 'in',
+  //       buildKnexQuery(q.in)
+  //         .select(q.toField)
+  //     )
+  //     // .select(q.select)
+  // }
   throw Error('not supported')
 }
 
@@ -229,12 +159,38 @@ function getAuthorizationFilter(queryPlans: any) {
 
 app.get('/menuItems/:id', async (req, res) => {
   const { id = 1 } = req.params
-  const result = await isAllowed('MenuItem', id as number, 'read')
-  res.json({ result })
-})
-
-app.get('/knex', async(req, res) => {
   const queryPlans = [
+    // {
+    //   "queryPlan": {
+    //     "from": "MenuItem",
+    //     "to": "Menu",
+    //     "case": "many-to-one",
+    //     "fromField": "menuId",
+    //     "toField": "id",
+    //     "in": {
+    //       "from": "Menu",
+    //       "to": "Restaurant",
+    //       "case": "many-to-one",
+    //       "fromField": "restaurantId",
+    //       "toField": "id",
+    //       "in": {
+    //         "from": "Restaurant",
+    //         "to": "Chef",
+    //         "case": "one-to-many",
+    //         "fromField": "id",
+    //         "toField": "restaurantId",
+    //         "in": {
+    //           "from": "Chef",
+    //           "fromField": "userId",
+    //           "userId": [
+    //             7
+    //           ]
+    //         }
+    //       }
+    //     }
+    //   },
+    //   "kind": 'restricted'
+    // },
     {
       "queryPlan": {
         "from": "MenuItem",
@@ -264,15 +220,39 @@ app.get('/knex', async(req, res) => {
                 "from": "Manager",
                 "fromField": "userId",
                 "userId": [
-                  7
+                 7
                 ]
               }
             }
           }
         }
       },
-      "kind": 'restricted'
-    },
+      "kind": "restricted"
+    }
+  ]
+  const result = await isAllowed(queryPlans, id as number, 'read')
+  res.json({ result })
+})
+
+app.post('/menuItems', async (req, res) => {
+  const queryPlans = [
+    {
+      "queryPlan": null,
+      "kind": 'noAccess'
+    }
+  ]
+  const allowed = await isAllowed(queryPlans, null, 'create')
+  if(allowed) {
+    const response: any = await knex('MenuItem')
+      .insert(req.body)
+    return res.json(response)
+  }
+  res.status(403).json({ message: 'Forbidden' })
+})
+
+app.put('/menuItems/:id', async (req, res) => {
+  const { id } = req.params
+  const queryPlans = [
     {
       "queryPlan": {
         "from": "MenuItem",
@@ -303,6 +283,107 @@ app.get('/knex', async(req, res) => {
         }
       },
       "kind": 'restricted'
+    }
+  ]
+  const allowed = await isAllowed(queryPlans, Number(id), 'update')
+  if(allowed) {
+    const response: any = await knex('MenuItem')
+      .where({ id })
+      .update(req.body)
+    return res.json(response)
+  }
+  res.status(403).json({ message: 'Forbidden' })
+})
+
+app.delete('/menuItems/:id', async (req, res) => {
+  const { id } = req.params
+  const queryPlans = [
+    {
+      "queryPlan": {
+        "from": "MenuItem",
+        "to": "Menu",
+        "case": "many-to-one",
+        "fromField": "menuId",
+        "toField": "id",
+        "in": {
+          "from": "Menu",
+          "to": "Restaurant",
+          "case": "many-to-one",
+          "fromField": "restaurantId",
+          "toField": "id",
+          "in": {
+            "from": "Restaurant",
+            "to": "Chef",
+            "case": "one-to-many",
+            "fromField": "id",
+            "toField": "restaurantId",
+            "in": {
+              "from": "Chef",
+              "fromField": "userId",
+              "userId": [
+                7
+              ]
+            }
+          }
+        }
+      },
+      "kind": 'restricted'
+    }
+  ]
+  const allowed = await isAllowed(queryPlans, Number(id), 'delete')
+  if(allowed) {
+    const response: any = await knex('MenuItem')
+      .where({ id })
+      .del()
+    return res.json(response)
+  }
+  res.status(403).json({ message: 'Forbidden' })
+})
+
+
+app.get('/menuItems', async(req, res) => {
+  const queryPlans = [
+    {
+      "queryPlan": null,
+      "kind": "fullAccess"
+    },
+    {
+      "queryPlan": {
+        "from": "MenuItem",
+        "to": "Menu",
+        "case": "many-to-one",
+        "fromField": "menuId",
+        "toField": "id",
+        "in": {
+          "from": "Menu",
+          "to": "Restaurant",
+          "case": "many-to-one",
+          "fromField": "restaurantId",
+          "toField": "id",
+          "in": {
+            "from": "Restaurant",
+            "to": "Chain",
+            "case": "many-to-one",
+            "fromField": "chainId",
+            "toField": "id",
+            "in": {
+              "from": "Chain",
+              "to": "Manager",
+              "case": "one-to-many",
+              "fromField": "id",
+              "toField": "chainId",
+              "in": {
+                "from": "Manager",
+                "fromField": "userId",
+                "userId": [
+                 7
+                ]
+              }
+            }
+          }
+        }
+      },
+      "kind": "restricted"
     }
   ]
   const baseQuery = knex('MenuItem')
@@ -520,41 +601,6 @@ app.get('/user/:userId/waiter/menus', async(req, res) => {
   })
   res.json(menus)
 })
-
-app.post('/menuItems', async (req, res) => {
-  const allowed = await isAllowed('MenuItem', null, 'create')
-  if(allowed) {
-    const response = await knex('MenuItem')
-      .insert(req.body)
-    return res.json(response)
-  }
-  res.status(403).json({ message: 'Forbidden' })
-})
-
-app.put('/menuItems/:id', async (req, res) => {
-  const { id } = req.params
-  const allowed = await isAllowed('MenuItem', Number(id), 'update')
-  if(allowed) {
-    const response = await knex('MenuItem')
-      .where({ id })
-      .update(req.body)
-    return res.json(response)
-  }
-  res.status(403).json({ message: 'Forbidden' })
-})
-
-app.delete('/menuItems/:id', async (req, res) => {
-  const { id } = req.params
-  const allowed = await isAllowed('MenuItem', Number(id), 'delete')
-  if(allowed) {
-    const response = await knex('MenuItem')
-      .where({ id })
-      .del()
-    return res.json(response)
-  }
-  res.status(403).json({ message: 'Forbidden' })
-})
-
 
 app.get('/user/:userId/chef/restaurants', async(req, res) => {
   const { userId = 1 } = req.params
